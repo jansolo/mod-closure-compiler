@@ -31,11 +31,11 @@ public class ClosureCompilerVerticle extends BusModBase {
     private static final String ERR_MSG_JS_COMPILE_FAILED = "failed to compile js: %1$s";
     private static final String ERR_MSG_JS_WRITE_FAILED = "failed to write compiled js file %1$s: %2$s";
     private static final String ERR_MSG_INVALID_COMPILE_MESSAGE = "invalid message at %1$s: %2$s";
-    private static final String ERR_MSG_UNEXPECTED = "unexpected exception while processing %1$s";
+    private static final String ERR_MSG_UNEXPECTED = "unexpected exception %1$s while processing message %2$s";
 
     @Override
     public void start(final Future<Void> startedResult) {
-        super.start(startedResult);
+        super.start();
         logger.info(String.format("registering %1$s ...", ADDRESS_COMPILE));
         eb.registerHandler(ADDRESS_COMPILE, new CompileHandler(), new AsyncResultHandler<Void>() {
             @Override
@@ -146,7 +146,7 @@ public class ClosureCompilerVerticle extends BusModBase {
                             compileMessage.address(), msgBody != null ? msgBody.encodePrettily() : null));
                 }
             } catch (RuntimeException ex) {
-                final String msg = String.format(ERR_MSG_UNEXPECTED, msgBody);
+                final String msg = String.format(ERR_MSG_UNEXPECTED, ex.getMessage(), msgBody);
                 logger.error(msg, ex);
                 compileMessage.fail(ERR_CODE_BASE, msg);
             }
