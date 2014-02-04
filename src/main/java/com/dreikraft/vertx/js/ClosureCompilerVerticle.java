@@ -3,12 +3,10 @@ package com.dreikraft.vertx.js;
 import com.google.javascript.jscomp.*;
 import com.google.javascript.jscomp.Compiler;
 import org.vertx.java.busmods.BusModBase;
-import org.vertx.java.core.AsyncResult;
-import org.vertx.java.core.AsyncResultHandler;
-import org.vertx.java.core.Future;
-import org.vertx.java.core.Handler;
+import org.vertx.java.core.*;
 import org.vertx.java.core.buffer.Buffer;
 import org.vertx.java.core.eventbus.Message;
+import org.vertx.java.core.json.JsonArray;
 import org.vertx.java.core.json.JsonObject;
 
 import java.io.File;
@@ -24,24 +22,50 @@ import java.util.List;
  */
 public class ClosureCompilerVerticle extends BusModBase {
 
-    public static final String ADDRESS_BASE = ClosureCompilerVerticle.class.getName();
+    public static final String ADDRESS_BASE = ClosureCompilerVerticle.class.getPackage().getName();
     public static final String ADDRESS_COMPILE = ADDRESS_BASE + "/compile";
-    public static final long REPLY_TIMEOUT = 30 * 1000;
     public static final String JS_SOURCE_FILES = "jsSourceFiles";
     public static final String JS_COMPILED_FILE = "jsCompiledFile";
-    public static final int ERR_CODE_BASE = 300;
-    public static final int ERR_CODE_JS_COMPILE_FAILED = ERR_CODE_BASE;
-    public static final String ERR_MSG_JS_COMPILE_FAILED = "failed to compile js: %1$s";
-    public static final int ERR_CODE_JS_WRITE_FAILED = ERR_CODE_BASE + 1;
-    public static final String ERR_MSG_JS_WRITE_FAILED = "failed to write compiled js file %1$s: %2$s";
+    public static final String CONFIG_COMPILE_ON_START = "compileOnStart";
+    public static final int ERR_CODE_BASE = 500;
+    private static final String ERR_MSG_JS_COMPILE_FAILED = "failed to compile js: %1$s";
+    private static final String ERR_MSG_JS_WRITE_FAILED = "failed to write compiled js file %1$s: %2$s";
+    private static final String ERR_MSG_INVALID_COMPILE_MESSAGE = "invalid message at %1$s: %2$s";
+    private static final String ERR_MSG_UNEXPECTED = "unexpected exception while processing %1$s";
 
     @Override
-    public void start(Future<Void> startedResult) {
+    public void start(final Future<Void> startedResult) {
         super.start(startedResult);
-        logger.info(String.format("starting verticle %1$s ...", this.getClass().getName()));
-
-        logger.info(String.format("registering handler %1$s", ADDRESS_COMPILE));
-        eb.registerHandler(ADDRESS_COMPILE, new CompileHandler());
+        logger.info(String.format("registering %1$s ...", ADDRESS_COMPILE));
+        eb.registerHandler(ADDRESS_COMPILE, new CompileHandler(), new AsyncResultHandler<Void>() {
+            @Override
+            public void handle(AsyncResult<Void> registerResult) {
+                if (registerResult.succeeded()) {
+                    logger.info(String.format("successfully registered %1$s", ADDRESS_COMPILE));
+                    if (getOptionalBooleanConfig(CONFIG_COMPILE_ON_START, true)) {
+                        final JsonObject compileMsg = new JsonObject();
+                        compileMsg.putString(JS_COMPILED_FILE, getOptionalStringConfig(JS_COMPILED_FILE, null));
+                        compileMsg.putArray(JS_SOURCE_FILES, getOptionalArrayConfig(JS_SOURCE_FILES, new JsonArray()));
+                        logger.info(String.format("starting compilation %1$s ...", compileMsg.encodePrettily()));
+                        eb.send(ADDRESS_COMPILE, compileMsg, new Handler<Message<JsonObject>>() {
+                            @Override
+                            public void handle(final Message<JsonObject> compileResult) {
+                                final JsonObject resultBody = compileResult.body();
+                                if ("ok".equals(resultBody.getField("status"))) {
+                                    startedResult.setResult(null);
+                                } else {
+                                    startedResult.setFailure(new VertxException(resultBody.getString("message")));
+                                }
+                            }
+                        });
+                    } else {
+                        startedResult.setResult(null);
+                    }
+                } else {
+                    startedResult.setFailure(registerResult.cause());
+                }
+            }
+        });
     }
 
     private String extractDir(String target) {
@@ -59,49 +83,72 @@ public class ClosureCompilerVerticle extends BusModBase {
         @Override
         public void handle(final Message<JsonObject> compileMessage) {
             final JsonObject msgBody = compileMessage.body();
-            // initialize compiler
-            final Compiler compiler = new Compiler();
-            final CompilerOptions options = new CompilerOptions();
-            CompilationLevel.SIMPLE_OPTIMIZATIONS.setOptionsForCompilationLevel(options);
-            List<SourceFile> externs = new ArrayList<>();
             try {
-                externs = CommandLineRunner.getDefaultExterns();
-            } catch (IOException e) {
-                logger.error("failed to load externs", e);
-            }
-            final List<SourceFile> jsSourceFiles = new ArrayList<>();
-            final Iterator it = msgBody.getArray(JS_SOURCE_FILES).iterator();
-            while (it.hasNext()) {
-                final String jsSourceFileName = (String) it.next();
-                try {
-                    jsSourceFiles.add(SourceFile.fromFile(new File(Thread.currentThread().getContextClassLoader()
-                            .getResource(jsSourceFileName).toURI())));
-                    logger.info(String.format("compiling js source file: %1$s", jsSourceFileName));
-                } catch (URISyntaxException | NullPointerException e) {
-                    logger.error(String.format("failed to load js source file %1$s", jsSourceFileName), e);
-                }
-            }
-            final Result compileResult = compiler.compile(externs, jsSourceFiles, options);
-            if (compileResult.success) {
                 final String jsCompiledFile = msgBody.getString(JS_COMPILED_FILE);
-                vertx.fileSystem().mkdirSync(extractDir(jsCompiledFile), true);
-                vertx.fileSystem().writeFile(jsCompiledFile, new Buffer(compiler.toSource(), "UTF-8"),
-                        new AsyncResultHandler<Void>() {
-                            @Override
-                            public void handle(AsyncResult<Void> writeResult) {
-                                if (writeResult.succeeded()) {
-                                    logger.info(String.format("successfully compiled js files to $1%s", jsCompiledFile));
-                                    compileMessage.reply();
-                                } else {
-                                    compileMessage.fail(ERR_CODE_JS_WRITE_FAILED, String.format(
-                                            ERR_MSG_JS_WRITE_FAILED, jsCompiledFile,
-                                            writeResult.cause().getMessage()));
-                                }
-                            }
-                        });
-            } else {
-                compileMessage.fail(ERR_CODE_JS_COMPILE_FAILED, String.format(ERR_MSG_JS_COMPILE_FAILED,
-                        Arrays.toString(compileResult.errors)));
+                final JsonArray jsSourceFilesArray = msgBody.getArray(JS_SOURCE_FILES);
+
+                if (jsCompiledFile != null && jsSourceFilesArray != null && jsSourceFilesArray.size() > 0) {
+
+                    // initialize compiler
+                    final Compiler compiler = new Compiler();
+                    final CompilerOptions options = new CompilerOptions();
+                    CompilationLevel.SIMPLE_OPTIMIZATIONS.setOptionsForCompilationLevel(options);
+                    List<SourceFile> externs = new ArrayList<>();
+                    try {
+                        externs = CommandLineRunner.getDefaultExterns();
+                    } catch (IOException e) {
+                        logger.error("failed to load externs", e);
+                    }
+                    final List<SourceFile> jsSourceFiles = new ArrayList<>();
+                    final Iterator it = jsSourceFilesArray.iterator();
+                    while (it.hasNext()) {
+                        final String jsSourceFileName = (String) it.next();
+                        try {
+                            jsSourceFiles.add(SourceFile.fromFile(new File(Thread.currentThread().getContextClassLoader()
+                                    .getResource(jsSourceFileName).toURI())));
+                            logger.info(String.format("adding js source file to compilation: %1$s", jsSourceFileName));
+                        } catch (URISyntaxException | NullPointerException e) {
+                            logger.error(String.format("failed to add js source file to compilation: %1$s",
+                                    jsSourceFileName), e);
+                        }
+                    }
+                    logger.info(String.format("starting compilation of %1$s with options %2$s ...",
+                            jsSourceFiles.toString(), options.toString()));
+                    final Result compileResult = compiler.compile(externs, jsSourceFiles, options);
+                    if (compileResult.success) {
+                        logger.info(String.format("successfully compiled %1$s", jsSourceFiles.toString()));
+                        final String outDir = extractDir(jsCompiledFile);
+                        logger.info(String.format("creating js output directory %1$s ...", outDir));
+                        vertx.fileSystem().mkdirSync(outDir, true);
+                        logger.info(String.format("successfully created js output directory %1$s", outDir));
+                        logger.info(String.format("writing compiled js file %1$s ...", jsCompiledFile));
+                        vertx.fileSystem().writeFile(jsCompiledFile, new Buffer(compiler.toSource(), "UTF-8"),
+                                new AsyncResultHandler<Void>() {
+                                    @Override
+                                    public void handle(AsyncResult<Void> writeResult) {
+                                        if (writeResult.succeeded()) {
+                                            logger.info(String.format("successfully wrote compiled js file %1$s",
+                                                    jsCompiledFile));
+                                            sendOK(compileMessage, new JsonObject().putString("message",
+                                                    String.format("successfully compiled %1$d " +
+                                                            "javascript files", jsSourceFilesArray.size())));
+                                        } else {
+                                            compileMessage.fail(ERR_CODE_BASE, String.format(ERR_MSG_JS_WRITE_FAILED, jsCompiledFile));
+                                        }
+                                    }
+                                });
+                    } else {
+                        compileMessage.fail(ERR_CODE_BASE, String.format(ERR_MSG_JS_COMPILE_FAILED,
+                                Arrays.toString(compileResult.errors)));
+                    }
+                } else {
+                    compileMessage.fail(ERR_CODE_BASE, String.format(ERR_MSG_INVALID_COMPILE_MESSAGE,
+                            compileMessage.address(), msgBody != null ? msgBody.encodePrettily() : null));
+                }
+            } catch (RuntimeException ex) {
+                final String msg = String.format(ERR_MSG_UNEXPECTED, msgBody);
+                logger.error(msg, ex);
+                compileMessage.fail(ERR_CODE_BASE, msg);
             }
         }
     }
