@@ -18,7 +18,7 @@ import java.util.Iterator;
 import java.util.List;
 
 /**
- * Created by jan_solo on 23.01.14.
+ * Compiles and minifies Javascript files with the Google Closure Compiler.
  */
 public class ClosureCompilerVerticle extends BusModBase {
 
@@ -35,7 +35,11 @@ public class ClosureCompilerVerticle extends BusModBase {
 
     @Override
     public void start(final Future<Void> startedResult) {
+
+        // initialize members
         super.start();
+
+        // register event bus addresses
         logger.info(String.format("registering %1$s ...", ADDRESS_COMPILE));
         eb.registerHandler(ADDRESS_COMPILE, new CompileHandler(), new AsyncResultHandler<Void>() {
             @Override
@@ -104,9 +108,11 @@ public class ClosureCompilerVerticle extends BusModBase {
                     while (it.hasNext()) {
                         final String jsSourceFileName = (String) it.next();
                         try {
-                            jsSourceFiles.add(SourceFile.fromFile(new File(Thread.currentThread().getContextClassLoader()
-                                    .getResource(jsSourceFileName).toURI())));
-                            logger.info(String.format("adding js source file to compilation: %1$s", jsSourceFileName));
+                            jsSourceFiles.add(SourceFile.fromFile(new File(
+                                    Thread.currentThread().getContextClassLoader().getResource(jsSourceFileName)
+                                            .toURI())));
+                            logger.debug(String.format("adding js source file to compilation: %1$s",
+                                    jsSourceFileName));
                         } catch (URISyntaxException | NullPointerException e) {
                             logger.error(String.format("failed to add js source file to compilation: %1$s",
                                     jsSourceFileName), e);
@@ -116,24 +122,30 @@ public class ClosureCompilerVerticle extends BusModBase {
                             jsSourceFiles.toString(), options.toString()));
                     final Result compileResult = compiler.compile(externs, jsSourceFiles, options);
                     if (compileResult.success) {
-                        logger.info(String.format("successfully compiled %1$s", jsSourceFiles.toString()));
+                        if (logger.isDebugEnabled())
+                            logger.debug(String.format("successfully compiled %1$s", jsSourceFiles.toString()));
                         final String outDir = extractDir(jsCompiledFile);
-                        logger.info(String.format("creating js output directory %1$s ...", outDir));
+                        if (logger.isDebugEnabled())
+                            logger.debug(String.format("creating js output directory %1$s ...", outDir));
                         vertx.fileSystem().mkdirSync(outDir, true);
-                        logger.info(String.format("successfully created js output directory %1$s", outDir));
-                        logger.info(String.format("writing compiled js file %1$s ...", jsCompiledFile));
+                        if (logger.isDebugEnabled()) {
+                            logger.debug(String.format("successfully created js output directory %1$s", outDir));
+                            logger.debug(String.format("writing compiled js file %1$s ...", jsCompiledFile));
+                        }
                         vertx.fileSystem().writeFile(jsCompiledFile, new Buffer(compiler.toSource(), "UTF-8"),
                                 new AsyncResultHandler<Void>() {
                                     @Override
                                     public void handle(AsyncResult<Void> writeResult) {
                                         if (writeResult.succeeded()) {
-                                            logger.info(String.format("successfully wrote compiled js file %1$s",
-                                                    jsCompiledFile));
+                                            if (logger.isDebugEnabled())
+                                                logger.debug(String.format("successfully wrote compiled js file %1$s",
+                                                        jsCompiledFile));
                                             sendOK(compileMessage, new JsonObject().putString("message",
                                                     String.format("successfully compiled %1$d " +
                                                             "javascript files", jsSourceFilesArray.size())));
                                         } else {
-                                            compileMessage.fail(ERR_CODE_BASE, String.format(ERR_MSG_JS_WRITE_FAILED, jsCompiledFile));
+                                            compileMessage.fail(ERR_CODE_BASE, String.format(ERR_MSG_JS_WRITE_FAILED,
+                                                    jsCompiledFile));
                                         }
                                     }
                                 });
