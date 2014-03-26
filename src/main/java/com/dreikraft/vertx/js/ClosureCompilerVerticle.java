@@ -6,6 +6,8 @@ import org.vertx.java.busmods.BusModBase;
 import org.vertx.java.core.*;
 import org.vertx.java.core.buffer.Buffer;
 import org.vertx.java.core.eventbus.Message;
+import org.vertx.java.core.eventbus.ReplyException;
+import org.vertx.java.core.eventbus.ReplyFailure;
 import org.vertx.java.core.json.JsonArray;
 import org.vertx.java.core.json.JsonObject;
 
@@ -110,7 +112,8 @@ public class ClosureCompilerVerticle extends BusModBase {
                         try {
                             jsSourceFiles.add(SourceFile.fromFile(new File(
                                     Thread.currentThread().getContextClassLoader().getResource(jsSourceFileName)
-                                            .toURI())));
+                                            .toURI()
+                            )));
                             logger.debug(String.format("adding js source file to compilation: %1$s",
                                     jsSourceFileName));
                         } catch (URISyntaxException | NullPointerException e) {
@@ -142,25 +145,31 @@ public class ClosureCompilerVerticle extends BusModBase {
                                                         jsCompiledFile));
                                             sendOK(compileMessage, new JsonObject().putString("message",
                                                     String.format("successfully compiled %1$d " +
-                                                            "javascript files", jsSourceFilesArray.size())));
+                                                            "javascript files", jsSourceFilesArray.size())
+                                            ));
                                         } else {
-                                            compileMessage.fail(ERR_CODE_BASE, String.format(ERR_MSG_JS_WRITE_FAILED,
-                                                    jsCompiledFile));
+                                            sendError(compileMessage, String.format(ERR_MSG_JS_WRITE_FAILED,
+                                                            jsCompiledFile, writeResult.cause().getMessage()),
+                                                    (Exception) writeResult.cause()
+                                            );
                                         }
                                     }
-                                });
+                                }
+                        );
                     } else {
-                        compileMessage.fail(ERR_CODE_BASE, String.format(ERR_MSG_JS_COMPILE_FAILED,
-                                Arrays.toString(compileResult.errors)));
+                        final Exception rex = new ReplyException(ReplyFailure.RECIPIENT_FAILURE,
+                                String.format(ERR_MSG_JS_COMPILE_FAILED, Arrays.toString(compileResult.errors)));
+                        sendError(compileMessage, rex.getMessage(), rex);
                     }
                 } else {
-                    compileMessage.fail(ERR_CODE_BASE, String.format(ERR_MSG_INVALID_COMPILE_MESSAGE,
-                            compileMessage.address(), msgBody != null ? msgBody.encodePrettily() : null));
+                    final Exception rex = new ReplyException(ReplyFailure.RECIPIENT_FAILURE,
+                            String.format(ERR_MSG_INVALID_COMPILE_MESSAGE,
+                                    compileMessage.address(), msgBody != null ? msgBody.encodePrettily() : null)
+                    );
+                    sendError(compileMessage, rex.getMessage(), rex);
                 }
             } catch (RuntimeException ex) {
-                final String msg = String.format(ERR_MSG_UNEXPECTED, ex.getMessage(), msgBody);
-                logger.error(msg, ex);
-                compileMessage.fail(ERR_CODE_BASE, msg);
+                sendError(compileMessage, String.format(ERR_MSG_UNEXPECTED, ex.getMessage(), msgBody), ex);
             }
         }
     }
