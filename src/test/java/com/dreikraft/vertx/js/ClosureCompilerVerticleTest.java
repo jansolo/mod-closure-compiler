@@ -17,8 +17,6 @@ import org.vertx.testtools.VertxAssert;
  */
 public class ClosureCompilerVerticleTest extends TestVerticle {
 
-    private static final long REPLY_TIMEOUT = 30 * 1000;
-
     @Override
     public void start() {
         initialize();
@@ -45,12 +43,11 @@ public class ClosureCompilerVerticleTest extends TestVerticle {
         msg.putArray(ClosureCompilerVerticle.JS_SOURCE_FILES, jsSourceFiles);
         msg.putString(ClosureCompilerVerticle.JS_COMPILED_FILE, "js_min/valid.js");
 
-        vertx.eventBus().setDefaultReplyTimeout(REPLY_TIMEOUT);
-        vertx.eventBus().sendWithTimeout(ClosureCompilerVerticle.ADDRESS_COMPILE, msg, REPLY_TIMEOUT,
-                new AsyncResultHandler<Message<String>>() {
+        vertx.eventBus().send(ClosureCompilerVerticle.ADDRESS_COMPILE, msg,
+                new Handler<Message<JsonObject>>() {
                     @Override
-                    public void handle(AsyncResult<Message<String>> compileResult) {
-                        VertxAssert.assertTrue(compileResult.succeeded());
+                    public void handle(final Message<JsonObject> replyMsg) {
+                        VertxAssert.assertTrue("ok".equals(replyMsg.body().getString("status")));
                         VertxAssert.assertTrue(vertx.fileSystem().existsSync("js_min/valid.js"));
                         vertx.fileSystem().deleteSync("js_min/valid.js");
                         VertxAssert.testComplete();
@@ -66,11 +63,11 @@ public class ClosureCompilerVerticleTest extends TestVerticle {
         msg.putArray(ClosureCompilerVerticle.JS_SOURCE_FILES, jsSourceFiles);
         msg.putString(ClosureCompilerVerticle.JS_COMPILED_FILE, "js_min/invalid.js");
 
-        vertx.eventBus().sendWithTimeout(ClosureCompilerVerticle.ADDRESS_COMPILE, msg, REPLY_TIMEOUT,
-                new AsyncResultHandler<Message<String>>() {
+        vertx.eventBus().send(ClosureCompilerVerticle.ADDRESS_COMPILE, msg,
+                new Handler<Message<JsonObject>>() {
                     @Override
-                    public void handle(AsyncResult<Message<String>> compileResult) {
-                        VertxAssert.assertTrue(compileResult.failed());
+                    public void handle(final Message<JsonObject> replyMsg) {
+                        VertxAssert.assertTrue("error".equals(replyMsg.body().getString("status")));
                         VertxAssert.testComplete();
                     }
                 });
