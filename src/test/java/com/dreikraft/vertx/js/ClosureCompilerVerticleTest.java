@@ -5,15 +5,15 @@ import org.vertx.java.core.AsyncResult;
 import org.vertx.java.core.AsyncResultHandler;
 import org.vertx.java.core.Handler;
 import org.vertx.java.core.eventbus.Message;
-import org.vertx.java.core.eventbus.ReplyException;
-import org.vertx.java.core.eventbus.impl.ReplyFailureMessage;
 import org.vertx.java.core.json.JsonArray;
 import org.vertx.java.core.json.JsonObject;
 import org.vertx.testtools.TestVerticle;
 import org.vertx.testtools.VertxAssert;
 
 /**
- * Created by jan_solo on 09.01.14.
+ * Tests the closure compiler verticle.
+ *
+ * author jan_solo
  */
 public class ClosureCompilerVerticleTest extends TestVerticle {
 
@@ -47,12 +47,17 @@ public class ClosureCompilerVerticleTest extends TestVerticle {
                 new Handler<Message<JsonObject>>() {
                     @Override
                     public void handle(final Message<JsonObject> replyMsg) {
-                        VertxAssert.assertTrue("ok".equals(replyMsg.body().getString("status")));
-                        VertxAssert.assertTrue(vertx.fileSystem().existsSync("js_min/valid.js"));
-                        vertx.fileSystem().deleteSync("js_min/valid.js");
+                        try {
+                            VertxAssert.assertTrue("ok".equals(replyMsg.body().getString("status")));
+                            VertxAssert.assertTrue(vertx.fileSystem().existsSync("js_min/valid.js"));
+                            vertx.fileSystem().deleteSync("js_min/valid.js");
+                        } catch (RuntimeException ex) {
+                            VertxAssert.fail(ex.getMessage());
+                        }
                         VertxAssert.testComplete();
                     }
-                });
+                }
+        );
     }
 
     @Test
@@ -67,9 +72,15 @@ public class ClosureCompilerVerticleTest extends TestVerticle {
                 new Handler<Message<JsonObject>>() {
                     @Override
                     public void handle(final Message<JsonObject> replyMsg) {
-                        VertxAssert.assertTrue("error".equals(replyMsg.body().getString("status")));
+                        try {
+                            VertxAssert.assertTrue("error".equals(replyMsg.body().getString("status")));
+                            VertxAssert.testComplete();
+                        } catch (RuntimeException ex) {
+                            VertxAssert.fail(ex.getMessage());
+                        }
                         VertxAssert.testComplete();
                     }
-                });
+                }
+        );
     }
 }
