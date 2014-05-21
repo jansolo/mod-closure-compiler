@@ -5,6 +5,7 @@
   "author": "Jan Illetschko",
   "keywords": ["google", "closure", "compiler"],
   "homepage": "https://github.com/jansolo/mod-closure-compiler",
+  "auto-redeploy": true,
   "preserve-cwd": true,
   "worker": true
 }

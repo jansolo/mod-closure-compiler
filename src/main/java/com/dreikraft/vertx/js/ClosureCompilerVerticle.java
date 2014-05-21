@@ -21,6 +21,8 @@ import java.util.List;
 
 /**
  * Compiles and minifies Javascript files with the Google Closure Compiler.
+ *
+ * @author jansolo
  */
 public class ClosureCompilerVerticle extends BusModBase {
 
@@ -29,7 +31,7 @@ public class ClosureCompilerVerticle extends BusModBase {
     public static final String JS_SOURCE_FILES = "jsSourceFiles";
     public static final String JS_COMPILED_FILE = "jsCompiledFile";
     public static final String CONFIG_COMPILE_ON_START = "compileOnStart";
-    public static final int ERR_CODE_BASE = 500;
+
     private static final String ERR_MSG_JS_COMPILE_FAILED = "failed to compile js: %1$s";
     private static final String ERR_MSG_JS_WRITE_FAILED = "failed to write compiled js file %1$s: %2$s";
     private static final String ERR_MSG_INVALID_COMPILE_MESSAGE = "invalid message at %1$s: %2$s";
